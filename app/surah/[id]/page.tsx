@@ -9,6 +9,26 @@ import LoadingPulse from '@/components/LoadingPulse';
 import Basmalah from '@/components/Basmalah';
 import AyahBlock from '@/components/AyahBlock';
 
+// ✨ FULLY TYPED & SAFE LOCAL STORAGE UTILITIES
+const safeGetItem = <T,>(key: string, fallback: T): T => {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const item = localStorage.getItem(key); // Fixed infinite loop bug here!
+    return item ? JSON.parse(item) : fallback;
+  } catch (e) {
+    return fallback;
+  }
+};
+
+const safeSetItem = (key: string, value: any) => {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(key, JSON.stringify(value)); // Fixed infinite loop bug here!
+  } catch (e) {
+    console.warn(`Failed to save ${key}`); // Fails silently without crashing
+  }
+};
+
 export default function SurahPage() {
   const params = useParams();
   const surahId = params.id as string; 
@@ -28,13 +48,12 @@ export default function SurahPage() {
 
   // 1. Fetch Data & Safely Read LocalStorage Memory
   useEffect(() => {
-    const savedMode = localStorage.getItem('tafseer_viewMode') as 'focused' | 'drawer';
-    const savedBooks = localStorage.getItem('tafseer_selectedBooks');
+    // ✨ Fallbacks added and manual parsing removed (safeGetItem handles it)
+    const savedMode = safeGetItem<'focused' | 'drawer'>('tafseer_viewMode', 'focused');
+    const savedBooks = safeGetItem<string[]>('tafseer_selectedBooks', ['تفسير الأمثل']);
     
-    if (savedMode) setViewMode(savedMode);
-    if (savedBooks) {
-      try { setSelectedBooks(JSON.parse(savedBooks)); } catch (e) {}
-    }
+    setViewMode(savedMode);
+    setSelectedBooks(savedBooks);
 
     async function loadData() {
       setLoading(true);
@@ -59,14 +78,10 @@ export default function SurahPage() {
         setAllTafseers(tafseers);
 
         // Safely set the initial memory if it doesn't exist or is a completely new surah
-        const currentSaved = localStorage.getItem('lastReadSurah');
-        if (currentSaved) {
-          const parsed = JSON.parse(currentSaved);
-          if (String(parsed.surahId) !== String(surahId)) {
-            localStorage.setItem('lastReadSurah', JSON.stringify({ surahId: surahId, ayahNumber: 1 }));
-          }
-        } else {
-          localStorage.setItem('lastReadSurah', JSON.stringify({ surahId: surahId, ayahNumber: 1 }));
+        const currentSaved = safeGetItem<{surahId: string, ayahNumber: number} | null>('lastReadSurah', null);
+        
+        if (!currentSaved || String(currentSaved.surahId) !== String(surahId)) {
+          safeSetItem('lastReadSurah', { surahId: surahId, ayahNumber: 1 });
         }
       }
       setLoading(false);
@@ -82,12 +97,9 @@ export default function SurahPage() {
       let targetId = window.location.hash ? window.location.hash.replace('#', '') : null;
 
       if (!targetId) {
-        const currentSaved = localStorage.getItem('lastReadSurah');
-        if (currentSaved) {
-          const parsed = JSON.parse(currentSaved);
-          if (String(parsed.surahId) === String(surahId) && parsed.ayahNumber > 1) {
-            targetId = `ayah-${parsed.ayahNumber}`;
-          }
+        const currentSaved = safeGetItem<{surahId: string, ayahNumber: number} | null>('lastReadSurah', null);
+        if (currentSaved && String(currentSaved.surahId) === String(surahId) && currentSaved.ayahNumber > 1) {
+          targetId = `ayah-${currentSaved.ayahNumber}`;
         }
       }
 
@@ -95,7 +107,7 @@ export default function SurahPage() {
         let attempts = 0;
         
         const hound = setInterval(() => {
-          const element = document.getElementById(targetId);
+          const element = document.getElementById(targetId as string);
 
           if (element) {
             clearInterval(hound);
@@ -120,7 +132,7 @@ export default function SurahPage() {
 
   const handleModeChange = (mode: 'focused' | 'drawer') => {
     setViewMode(mode);
-    localStorage.setItem('tafseer_viewMode', mode);
+    safeSetItem('tafseer_viewMode', mode);
   };
 
   const toggleBook = (book: string) => {
@@ -131,7 +143,7 @@ export default function SurahPage() {
       } else {
         newSelection = prev.length >= 2 ? [prev[1], book] : [...prev, book];
       }
-      localStorage.setItem('tafseer_selectedBooks', JSON.stringify(newSelection));
+      safeSetItem('tafseer_selectedBooks', newSelection);
       return newSelection;
     });
   };
@@ -148,10 +160,10 @@ export default function SurahPage() {
   const navigateDrawer = (newTafseer: GroupedTafseer) => {
     setActiveDrawer(newTafseer);
     // Save new position to memory instantly
-    localStorage.setItem('lastReadSurah', JSON.stringify({ 
+    safeSetItem('lastReadSurah', { 
       surahId: surahId, 
       ayahNumber: newTafseer.start_ayah 
-    }));
+    });
     
     // Auto-scroll the drawer content back to the top smoothly
     setTimeout(() => {
@@ -198,7 +210,8 @@ export default function SurahPage() {
       <div className="sticky top-0 z-40 flex justify-between items-center py-4 mb-6 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-100/50 dark:border-gray-800/50 -mx-4 px-4 md:-mx-8 md:px-8">
         <Link href="/" className="flex items-center gap-2 bg-[#fdfbf7] dark:bg-gray-800 text-[#064e3b] dark:text-[#b4914a] hover:bg-[#064e3b] hover:text-white dark:hover:bg-[#b4914a] dark:hover:text-white border border-[#064e3b]/20 px-4 py-2 rounded-full shadow-sm transition-all">
           <ArrowRight size={18} />
-          <span className="text-sm font-bold">العودة للفهرس</span>
+          <span className="text-sm font-bold hidden sm:inline">العودة للفهرس</span>
+          <span className="text-sm font-bold sm:hidden">رجوع</span>
         </Link>
 
         <button 
@@ -206,7 +219,8 @@ export default function SurahPage() {
           className="flex items-center gap-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-300 hover:text-[#b4914a] hover:border-[#b4914a] px-4 py-2 rounded-full shadow-sm transition-all"
         >
           <Settings size={18} />
-          <span className="text-sm font-bold">إعدادات القراءة</span>
+          <span className="text-sm font-bold hidden sm:inline">إعدادات القراءة</span>
+          <span className="text-sm font-bold sm:hidden">إعدادات</span>
         </button>
       </div>
 
